@@ -1,5 +1,13 @@
 """Agent instructions and prompts for Hunar Sales Agent - Script-Based System."""
 
+# Fee structure (injectable into AGENT_INSTRUCTIONS) - Indian Garment Making Course
+# Values in words for TTS. Override via env vars if needed.
+COURSE_PRICE_FULL = "twelve thousand nine hundred eighty rupees"
+COURSE_PRICE_DISCOUNTED = "nine thousand rupees"
+INSTALLMENT_1 = "four thousand rupees"
+INSTALLMENT_2 = "four thousand four hundred ninety rupees"
+INSTALLMENT_3 = "four thousand four hundred ninety rupees"
+
 AGENT_INSTRUCTIONS = """
 ====================================================
 SYSTEM AGENT BEHAVIOR PROMPT
