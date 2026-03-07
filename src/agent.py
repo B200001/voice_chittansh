@@ -52,6 +52,7 @@ class SalesCallSession:
     lead_id: str = ""
     lead_name: str = ""
     phone_number: str = ""
+    gender: str = "female"
     call_status: str = "new"
     interest_level: str = "unknown"
 
@@ -69,7 +70,7 @@ def build_prompt(session: SalesCallSession) -> str:
 
     variables = {
         "Client_Name": session.lead_name or "आप",
-        "Client_Gender": "female",
+        "Client_Gender": session.gender or "female",
         "Course_Price_Full": os.getenv("COURSE_PRICE_FULL", COURSE_PRICE_FULL),
         "Course_Price_Discounted": os.getenv("COURSE_PRICE_DISCOUNTED", COURSE_PRICE_DISCOUNTED),
         "Installment_1": os.getenv("INSTALLMENT_1", INSTALLMENT_1),
@@ -87,6 +88,55 @@ def build_prompt(session: SalesCallSession) -> str:
 
     return instructions
 
+# -------------------------
+# Guardrail Response
+# -------------------------
+
+
+def guardrail_response() -> str:
+    return """
+====================================================
+SECTION — KNOWLEDGE GUARDRAIL
+====================================================
+
+You are a Hunar Online Courses voice agent.
+
+Use the system prompt as the PRIMARY source of information for:
+- Hunar courses
+- Course catalog
+- Fees
+- Installments
+- Enrollment process
+- Student success stories
+- Hunar platform details
+
+RULES:
+
+1. For Hunar-related questions:
+Only answer using the information provided in this prompt.
+Do NOT invent course details, prices, policies, or features.
+
+2. For general knowledge questions:
+You may answer normally using your general knowledge.
+Example: history, geography, public figures, etc.
+
+3. If the question is about Hunar but the answer is NOT in the prompt:
+Do NOT guess.
+
+Respond politely:
+
+Hindi / Hinglish:
+"यह जानकारी अभी मेरे पास उपलब्ध नहीं है। मैं आपकी query note कर लेती हूँ और हमारी team आपको सही जानकारी के साथ contact करेगी।"
+
+English:
+"I don't have that information right now. I will note your query and our team will get back to you with the correct details."
+
+4. After answering unrelated questions, gently bring the conversation back to Hunar courses.
+
+Example redirection:
+"वैसे अगर आप चाहें तो मैं आपको हुनर के courses के बारे में बता सकती हूँ।"
+"""
+
 
 # -------------------------
 # Agent
@@ -96,7 +146,7 @@ class HunarSalesAgent(Agent):
 
     def __init__(self, session_data: SalesCallSession):
 
-        instructions = build_prompt(session_data)
+        instructions = build_prompt(session_data) + guardrail_response()
 
         super().__init__(instructions=instructions)
 
@@ -217,8 +267,12 @@ class HunarSalesAgent(Agent):
             instructions="""
 Start the conversation strictly from STEP 1 of the system prompt.
 
-Follow the scripted conversation flow exactly.
-Begin with Greeting and Identity Confirmation.
+IMPORTANT GUARDRAIL:
+Only answer questions using the information available in the system prompt.
+
+If the customer asks anything outside the provided information, politely say that you do not have the information right now and that the Hunar team will follow up with the correct details.
+
+Never guess or fabricate information.
 """
         )
 
@@ -237,15 +291,16 @@ async def entrypoint(ctx: agents.JobContext):
     session_data = SalesCallSession(
         lead_id=lead_id,
         lead_name="Bhuwan",
-        phone_number="9903232930"
+        phone_number="9903232930",
+        gender = "male"
     )
 
     # Voice Activity Detection
     vad = silero.VAD.load(
-        min_speech_duration=0.2,
-        min_silence_duration=0.5,
-        activation_threshold=0.6,
-        prefix_padding_duration=0.3,
+        min_speech_duration=0.2, # 0.4
+        min_silence_duration=0.5, #0.8
+        activation_threshold=0.6, #0.75
+        prefix_padding_duration=0.3, #0.5
     )
 
     # LLM
@@ -257,7 +312,8 @@ async def entrypoint(ctx: agents.JobContext):
         realtime_input_config=types.RealtimeInputConfig(
             automatic_activity_detection=types.AutomaticActivityDetection(
                 disabled=False
-            )
+            ),
+            activity_handling = types.ActivityHandling.NO_INTERRUPTION
         )
     )
 
