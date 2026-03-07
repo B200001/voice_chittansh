@@ -1,4 +1,4 @@
-# Chittansh Voice System (Hunar Sales Agent)
+# Chittansh Voice System 
 
 A LiveKit-based voice agent for sales calls, powered by Google Gemini.
 
