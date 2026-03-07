@@ -20,7 +20,14 @@ from livekit.agents import (
 from livekit.agents.voice.agent_session import VoiceActivityVideoSampler
 from livekit.plugins import google, silero, noise_cancellation
 
-from prompt import AGENT_INSTRUCTIONS
+from prompt import (
+    AGENT_INSTRUCTIONS,
+    COURSE_PRICE_FULL,
+    COURSE_PRICE_DISCOUNTED,
+    INSTALLMENT_1,
+    INSTALLMENT_2,
+    INSTALLMENT_3,
+)
 
 load_dotenv()
 
@@ -63,11 +70,11 @@ def build_prompt(session: SalesCallSession) -> str:
     variables = {
         "Client_Name": session.lead_name or "आप",
         "Client_Gender": "female",
-        "Course_Price_Full": os.getenv("COURSE_PRICE_FULL", ""),
-        "Course_Price_Discounted": os.getenv("COURSE_PRICE_DISCOUNTED", ""),
-        "Installment_1": os.getenv("INSTALLMENT_1", ""),
-        "Installment_2": os.getenv("INSTALLMENT_2", ""),
-        "Installment_3": os.getenv("INSTALLMENT_3", ""),
+        "Course_Price_Full": os.getenv("COURSE_PRICE_FULL", COURSE_PRICE_FULL),
+        "Course_Price_Discounted": os.getenv("COURSE_PRICE_DISCOUNTED", COURSE_PRICE_DISCOUNTED),
+        "Installment_1": os.getenv("INSTALLMENT_1", INSTALLMENT_1),
+        "Installment_2": os.getenv("INSTALLMENT_2", INSTALLMENT_2),
+        "Installment_3": os.getenv("INSTALLMENT_3", INSTALLMENT_3),
         "WhatsApp_Number_Spoken": session.phone_number or ""
     }
 
