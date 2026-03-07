@@ -1,3 +1,4 @@
+import asyncio
 import time
 import logging
 import os
@@ -8,13 +9,14 @@ from dotenv import load_dotenv
 
 from google.genai import types
 
-from livekit import agents
+from livekit import agents, api
 from livekit.agents import (
     Agent,
     AgentSession,
     RunContext,
     RoomInputOptions,
     function_tool,
+    get_job_context,
 )
 
 from livekit.agents.voice.agent_session import VoiceActivityVideoSampler
@@ -66,6 +68,19 @@ class SalesCallSession:
 # Prompt Variable Injection
 # -------------------------
 
+DIGIT_WORDS = {
+    "0": "zero", "1": "one", "2": "two", "3": "three", "4": "four",
+    "5": "five", "6": "six", "7": "seven", "8": "eight", "9": "nine",
+}
+
+
+def phone_number_to_spoken(phone: str) -> str:
+    """Convert phone number to digit-by-digit spoken form for TTS (avoids million/hundred)."""
+    if not phone:
+        return ""
+    return " ".join(DIGIT_WORDS.get(c, c) for c in str(phone).strip() if c.isdigit())
+
+
 def build_prompt(session: SalesCallSession) -> str:
 
     variables = {
@@ -76,7 +91,7 @@ def build_prompt(session: SalesCallSession) -> str:
         "Installment_1": os.getenv("INSTALLMENT_1", INSTALLMENT_1),
         "Installment_2": os.getenv("INSTALLMENT_2", INSTALLMENT_2),
         "Installment_3": os.getenv("INSTALLMENT_3", INSTALLMENT_3),
-        "WhatsApp_Number_Spoken": session.phone_number or ""
+        "WhatsApp_Number_Spoken": phone_number_to_spoken(session.phone_number or ""),
     }
 
     instructions = AGENT_INSTRUCTIONS
@@ -121,20 +136,15 @@ You may answer normally using your general knowledge.
 Example: history, geography, public figures, etc.
 
 3. If the question is about Hunar but the answer is NOT in the prompt:
-Do NOT guess.
+Do NOT guess. Respond politely using the SPEAK lines below.
 
-Respond politely:
+SPEAK (Hindi / Hinglish): "यह जानकारी अभी मेरे पास उपलब्ध नहीं है। मैं आपकी query note कर लेती हूँ और हमारी team आपको सही जानकारी के साथ contact करेगी।"
 
-Hindi / Hinglish:
-"यह जानकारी अभी मेरे पास उपलब्ध नहीं है। मैं आपकी query note कर लेती हूँ और हमारी team आपको सही जानकारी के साथ contact करेगी।"
-
-English:
-"I don't have that information right now. I will note your query and our team will get back to you with the correct details."
+SPEAK (English): "I don't have that information right now. I will note your query and our team will get back to you with the correct details."
 
 4. After answering unrelated questions, gently bring the conversation back to Hunar courses.
 
-Example redirection:
-"वैसे अगर आप चाहें तो मैं आपको हुनर के courses के बारे में बता सकती हूँ।"
+SPEAK (Hindi / Hinglish) for redirection: "वैसे अगर आप चाहें तो मैं आपको हुनर के courses के बारे में बता सकती हूँ।"
 """
 
 
@@ -254,6 +264,56 @@ class HunarSalesAgent(Agent):
 
         logger.info(f"Call status → {status}")
 
+    @function_tool()
+    async def cut_call(self, context: RunContext[SalesCallSession]):
+        """Called when the user wants to end or cut the call. Use this when they say things like: call khatam kardo, bye, mujhe jana hai, I have to go, disconnect, etc."""
+
+        logger.info("User requested to end call — cutting the call")
+
+        session = getattr(context, "session", None)
+        if not session:
+            logger.warning("cut_call: no session in context")
+            return "Could not end call."
+
+        # Wait for current speech to finish (so goodbye is heard)
+        try:
+            if hasattr(context, "wait_for_playout"):
+                await context.wait_for_playout()
+            else:
+                current_speech = getattr(session, "current_speech", None)
+                if current_speech:
+                    await current_speech.wait_for_playout()
+        except Exception:
+            pass
+
+        # Session shutdown ends the call (works in console mode + LiveKit)
+        if hasattr(session, "shutdown"):
+            session.shutdown()
+        elif hasattr(session, "aclose"):
+            await asyncio.shield(session.aclose())
+
+        # LiveKit room cleanup (works in connect/start mode)
+        try:
+            job_ctx = get_job_context()
+            async def _delete_room_on_shutdown() -> None:
+                try:
+                    if hasattr(job_ctx, "delete_room"):
+                        await job_ctx.delete_room()
+                    else:
+                        await job_ctx.api.room.delete_room(
+                            api.DeleteRoomRequest(room=job_ctx.room.name)
+                        )
+                except Exception as e:
+                    logger.debug("delete_room during shutdown: %s", e)
+            job_ctx.add_shutdown_callback(_delete_room_on_shutdown)
+            job_ctx.shutdown(reason="user ended call")
+        except Exception:
+            # Console mode: job_ctx may fail; session is already shutting down.
+            # Force process exit so the program closes.
+            asyncio.get_running_loop().call_later(0.5, lambda: os._exit(0))
+
+        return "Call ended."
+
 
 # -------------------------
 # Conversation Start
@@ -345,5 +405,7 @@ async def entrypoint(ctx: agents.JobContext):
 
 if __name__ == "__main__":
     agents.cli.run_app(
-        agents.WorkerOptions(entrypoint_fnc=entrypoint)
+        agents.WorkerOptions(entrypoint_fnc=entrypoint,
+        agent_name="hunar-agent"
+        )
     )
