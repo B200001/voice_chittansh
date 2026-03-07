@@ -1,0 +1,6 @@
+livekit-agents
+livekit-plugins-google
+livekit-plugins-silero
+livekit-plugins-noise-cancellation
+google-genai
+python-dotenv
