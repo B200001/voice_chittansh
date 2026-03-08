@@ -1,6 +1,6 @@
-livekit-agents
-livekit-plugins-google
-livekit-plugins-silero
-livekit-plugins-noise-cancellation
-google-genai
-python-dotenv
+livekit-agents==1.4.4
+livekit-plugins-google==1.4.4
+livekit-plugins-silero==1.4.4
+livekit-plugins-noise-cancellation==0.2.5
+google-genai==1.66.0
+python-dotenv==1.2.2

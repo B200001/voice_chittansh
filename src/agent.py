@@ -385,8 +385,10 @@ async def entrypoint(ctx: agents.JobContext):
             speaking_fps=0.3,
             silent_fps=0.2
         ),
-        user_away_timeout=20
+        user_away_timeout=20,
+        aec_warmup_duration=1
     )
+    logger.info("Agent session created for room: %s", ctx.room.name if ctx.room else "no-room")
 
     agent = HunarSalesAgent(session_data)
 
@@ -406,6 +408,6 @@ async def entrypoint(ctx: agents.JobContext):
 if __name__ == "__main__":
     agents.cli.run_app(
         agents.WorkerOptions(entrypoint_fnc=entrypoint,
-        agent_name="hunar-agent"
+        agent_name=os.getenv("AGENT_NAME", "Seema")
         )
     )
