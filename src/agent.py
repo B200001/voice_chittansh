@@ -3,6 +3,7 @@ import time
 import logging
 import os
 from dataclasses import dataclass, field
+from tkinter import TRUE
 from typing import Any
 
 from dotenv import load_dotenv
@@ -393,15 +394,15 @@ async def entrypoint(ctx: agents.JobContext):
     # CRM / Lead variables
     session_data = SalesCallSession(
         lead_id=lead_id,
-        lead_name="Bhuwan",
-        phone_number="9903232930",
-        gender = "male"
+        lead_name="सिरिशा",
+        phone_number="9015688994",
+        gender = "female"
     )
 
     # Voice Activity Detection
     vad = silero.VAD.load(
         min_speech_duration=0.2, # 0.4
-        min_silence_duration=0.5, #0.8
+        min_silence_duration=0.6, #0.8
         activation_threshold=0.6, #0.75
         prefix_padding_duration=0.3, #0.5
     )
@@ -414,9 +415,9 @@ async def entrypoint(ctx: agents.JobContext):
         vertexai=True,
         realtime_input_config=types.RealtimeInputConfig(
             automatic_activity_detection=types.AutomaticActivityDetection(
-                disabled=False
+                disabled=False,
             ),
-            activity_handling = types.ActivityHandling.NO_INTERRUPTION
+            activity_handling = types.ActivityHandling.START_OF_ACTIVITY_INTERRUPTS
         )
     )
 
