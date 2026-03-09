@@ -20,6 +20,8 @@ from livekit.agents import (
 )
 
 from livekit.agents.voice.agent_session import VoiceActivityVideoSampler
+
+from livekit.agents.voice.events import UserStateChangedEvent
 from livekit.plugins import google, silero, noise_cancellation
 
 from prompt import (
@@ -316,6 +318,47 @@ class HunarSalesAgent(Agent):
 
 
 # -------------------------
+# Inactivity / No-Response Helper
+# -------------------------
+
+
+async def _graceful_hangup(
+    session: AgentSession[SalesCallSession],
+    ctx: agents.JobContext,
+) -> None:
+    """Say goodbye and end the call gracefully. Used for no-response timeout."""
+    try:
+        await session.generate_reply(
+            instructions="""
+Say a warm, brief goodbye in Hindi/Hinglish. You are ending the call because the customer didn't respond.
+Say something like: "मैं समझ गई, शायद आप अभी busy हैं। मैं आपको बाद में call करूँगी। धन्यवाद, अलविदा।"
+Or in English: "I understand you might be busy. I'll call you back later. Thank you, goodbye."
+Keep it short (1-2 sentences). Do NOT ask questions. Just say goodbye and end.
+"""
+        )
+        await asyncio.sleep(6)  # Allow goodbye to play fully
+    except Exception as e:
+        logger.debug("graceful hangup generate_reply: %s", e)
+    try:
+        session.shutdown()
+        job_ctx = get_job_context()
+        async def _delete() -> None:
+            try:
+                if hasattr(job_ctx, "delete_room"):
+                    await job_ctx.delete_room()
+                else:
+                    await job_ctx.api.room.delete_room(
+                        api.DeleteRoomRequest(room=job_ctx.room.name)
+                    )
+            except Exception:
+                pass
+        job_ctx.add_shutdown_callback(_delete)
+        job_ctx.shutdown(reason="user no response")
+    except Exception:
+        asyncio.get_running_loop().call_later(0.5, lambda: os._exit(0))
+
+
+# -------------------------
 # Conversation Start
 # -------------------------
 
@@ -385,12 +428,41 @@ async def entrypoint(ctx: agents.JobContext):
             speaking_fps=0.3,
             silent_fps=0.2
         ),
-        user_away_timeout=20,
+        user_away_timeout=15,  # seconds before "away" state
         aec_warmup_duration=1
     )
     logger.info("Agent session created for room: %s", ctx.room.name if ctx.room else "no-room")
 
     agent = HunarSalesAgent(session_data)
+
+    inactivity_task: asyncio.Task | None = None
+
+    async def user_presence_task() -> None:
+        """Prompt 1-2 times, then gracefully end call if no response."""
+        # nonlocal inactivity_task
+        for attempt in range(2):  # Prompt twice before giving up
+            await session.generate_reply(
+                instructions=(
+                    "The user has been silent. Politely check if they can hear you. "
+                    "In Hindi: क्या आप सुन रहे हैं? बता दीजिए अगर आप busy हैं। "
+                    "Keep it brief (1 short sentence)."
+                )
+            )
+            await asyncio.sleep(10)
+        # Still no response after 2 prompts → graceful goodbye and hangup
+        logger.info("User still inactive after 2 prompts — ending call gracefully")
+        await _graceful_hangup(session, ctx)
+
+    def _on_user_state_changed(ev: UserStateChangedEvent) -> None:
+        nonlocal inactivity_task
+        if ev.new_state == "away":
+            inactivity_task = asyncio.create_task(user_presence_task())
+            return
+        if inactivity_task is not None:
+            inactivity_task.cancel()
+            inactivity_task = None
+
+    session.on("user_state_changed", _on_user_state_changed)
 
     await session.start(
         room=ctx.room,
