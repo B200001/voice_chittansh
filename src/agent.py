@@ -1,9 +1,7 @@
 import asyncio
-import time
 import logging
 import os
 from dataclasses import dataclass, field
-from tkinter import TRUE
 from typing import Any
 
 from dotenv import load_dotenv
@@ -11,6 +9,7 @@ from dotenv import load_dotenv
 from google.genai import types
 
 from livekit import agents, api
+from livekit.rtc import RemoteAudioTrack
 from livekit.agents import (
     Agent,
     AgentSession,
@@ -19,10 +18,20 @@ from livekit.agents import (
     function_tool,
     get_job_context,
 )
+from livekit.agents.beta.tools import EndCallTool
 
 from livekit.agents.voice.agent_session import VoiceActivityVideoSampler
 
-from livekit.agents.voice.events import UserStateChangedEvent
+from livekit.agents.voice.events import (
+    AgentStateChangedEvent,
+    CloseEvent,
+    ConversationItemAddedEvent,
+    ErrorEvent,
+    FunctionToolsExecutedEvent,
+    SpeechCreatedEvent,
+    UserInputTranscribedEvent,
+    UserStateChangedEvent,
+)
 from livekit.plugins import google, silero, noise_cancellation
 
 from prompt import (
@@ -41,11 +50,12 @@ load_dotenv()
 # -------------------------
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.DEBUG,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
-
 logger = logging.getLogger("hunar-agent")
+# Log everything from livekit.agents (transcripts, tool calls, etc.)
+logging.getLogger("livekit.agents").setLevel(logging.DEBUG)
 
 
 # -------------------------
@@ -161,7 +171,12 @@ class HunarSalesAgent(Agent):
 
         instructions = build_prompt(session_data) + guardrail_response()
 
-        super().__init__(instructions=instructions)
+        end_call_tool = EndCallTool(
+            extra_description="Use when user says: call khatam kardo, bye, mujhe jana hai, I have to go, disconnect karo",
+            end_instructions="Say a brief warm goodbye in Hindi/Hinglish (1 sentence), then end the call.",
+            delete_room=True,
+        )
+        super().__init__(instructions=instructions, tools=end_call_tool.tools)
 
         self.session_data = session_data
 
@@ -268,53 +283,58 @@ class HunarSalesAgent(Agent):
         logger.info(f"Call status → {status}")
 
     @function_tool()
+    async def update_whatsapp_number(
+        self,
+        context: RunContext[SalesCallSession],
+        phone_number: str,
+    ) -> str:
+        """Validate and store the customer's WhatsApp number. India format: exactly 10 digits, must start with 6, 7, 8, or 9. Call this when the user provides their WhatsApp number. Extract only digits from their speech (e.g. 9876543210). Returns 'valid' if accepted, or an error message in Hindi/English to speak if invalid."""
+        session = context.userdata
+        digits = "".join(c for c in str(phone_number).strip() if c.isdigit())
+        if len(digits) != 10:
+            return f"INVALID: WhatsApp number exactly 10 digits hona chahiye. Aapne {len(digits)} digits diye. Kripya sahi 10-digit number bataiye."
+        first = digits[0]
+        if first not in "6789":
+            return "INVALID: India mein WhatsApp number 6, 7, 8 ya 9 se start hona chahiye. Kripya sahi number bataiye."
+        session.phone_number = digits
+        logger.info(f"WhatsApp number validated and stored: {digits}")
+        return "valid"
+
+    @function_tool()
     async def cut_call(self, context: RunContext[SalesCallSession]):
-        """Called when the user wants to end or cut the call. Use this when they say things like: call khatam kardo, bye, mujhe jana hai, I have to go, disconnect, etc."""
-
-        logger.info("User requested to end call — cutting the call")
-
-        session = getattr(context, "session", None)
-        if not session:
-            logger.warning("cut_call: no session in context")
-            return "Could not end call."
-
-        # Wait for current speech to finish (so goodbye is heard)
-        try:
-            if hasattr(context, "wait_for_playout"):
-                await context.wait_for_playout()
-            else:
-                current_speech = getattr(session, "current_speech", None)
-                if current_speech:
-                    await current_speech.wait_for_playout()
-        except Exception:
-            pass
-
-        # Session shutdown ends the call (works in console mode + LiveKit)
-        if hasattr(session, "shutdown"):
-            session.shutdown()
-        elif hasattr(session, "aclose"):
-            await asyncio.shield(session.aclose())
-
-        # LiveKit room cleanup (works in connect/start mode)
+        """End the call when the user says goodbye, bye, call khatam kardo, mujhe jana hai, disconnect, etc. Call this to hang up. Say a brief goodbye first, then disconnect after it plays."""
+        logger.info("cut_call: user requested to end call — will disconnect after goodbye plays")
+        job_ctx = None
         try:
             job_ctx = get_job_context()
             async def _delete_room_on_shutdown() -> None:
                 try:
-                    if hasattr(job_ctx, "delete_room"):
-                        await job_ctx.delete_room()
-                    else:
-                        await job_ctx.api.room.delete_room(
-                            api.DeleteRoomRequest(room=job_ctx.room.name)
-                        )
+                    await job_ctx.delete_room()
+                    logger.info("cut_call: delete_room completed")
                 except Exception as e:
-                    logger.debug("delete_room during shutdown: %s", e)
+                    logger.warning("cut_call: delete_room error: %s", e)
             job_ctx.add_shutdown_callback(_delete_room_on_shutdown)
-            job_ctx.shutdown(reason="user ended call")
-        except Exception:
-            # Console mode: job_ctx may fail; session is already shutting down.
-            # Force process exit so the program closes.
-            asyncio.get_running_loop().call_later(0.5, lambda: os._exit(0))
+        except Exception as e:
+            logger.warning("cut_call: get_job_context error: %s", e)
 
+        # Wait for current speech (goodbye) to play out before cutting — smooth ending
+        try:
+            await context.wait_for_playout()
+            await asyncio.sleep(2)  # Extra 2s so user hears full goodbye
+        except Exception as e:
+            logger.debug("cut_call: wait_for_playout: %s", e)
+            await asyncio.sleep(4)  # Fallback: allow ~4s for goodbye to play
+
+        try:
+            agent_session = context.session
+            agent_session.shutdown()
+        except Exception as e:
+            logger.warning("cut_call: session.shutdown error: %s", e)
+        if job_ctx is not None:
+            try:
+                job_ctx.shutdown(reason="user ended call")
+            except Exception as e:
+                logger.warning("cut_call: job_ctx.shutdown error: %s", e)
         return "Call ended."
 
 
@@ -364,21 +384,8 @@ Keep it short (1-2 sentences). Do NOT ask questions. Just say goodbye and end.
 # -------------------------
 
     async def on_enter(self):
-
         logger.info("Agent on_enter triggered")
-
-        await self.session.generate_reply(
-            instructions="""
-Start the conversation strictly from STEP 1 of the system prompt.
-
-IMPORTANT GUARDRAIL:
-Only answer questions using the information available in the system prompt.
-
-If the customer asks anything outside the provided information, politely say that you do not have the information right now and that the Hunar team will follow up with the correct details.
-
-Never guess or fabricate information.
-"""
-        )
+        # First greeting is sent when remote audio track is subscribed (track_subscribed in entrypoint)
 
 
 # -------------------------
@@ -392,6 +399,7 @@ async def entrypoint(ctx: agents.JobContext):
     lead_id = ctx.room.name if ctx.room else "test-lead"
 
     # CRM / Lead variables
+    #राशियाँ सिरिशा 9015688994
     session_data = SalesCallSession(
         lead_id=lead_id,
         lead_name="सिरिशा",
@@ -399,15 +407,18 @@ async def entrypoint(ctx: agents.JobContext):
         gender = "female"
     )
 
-    # Voice Activity Detection
+    # Voice Activity Detection - balanced for:
+    # 1. Catching short utterances ("हाँ", "फ़ैशन") so user doesn't repeat
+    # 2. Not stopping agent mid-sentence from false triggers (echo, breath, cough)
     vad = silero.VAD.load(
-        min_speech_duration=0.2, # 0.4
-        min_silence_duration=0.6, #0.8
-        activation_threshold=0.6, #0.75
-        prefix_padding_duration=0.3, #0.5
+        min_speech_duration=0.15,  # lower = catches "हाँ", "yes", "फ़ैशन" etc. (was 0.35 - too high, missed short replies)
+        min_silence_duration=0.9,  # longer = less cutting user off mid-sentence, more time to finish thought
+        activation_threshold=0.68,  # higher = fewer false "user speaking" when agent speaks (reduces mid-speech stops)
+        prefix_padding_duration=0.35,  # capture more context at start of user speech
     )
 
-    # LLM
+    
+    # This reduces random voice breaking from false VAD triggers
     llm = google.realtime.RealtimeModel(
         model="gemini-live-2.5-flash",
         language="hi-IN",
@@ -417,7 +428,7 @@ async def entrypoint(ctx: agents.JobContext):
             automatic_activity_detection=types.AutomaticActivityDetection(
                 disabled=False,
             ),
-            activity_handling = types.ActivityHandling.START_OF_ACTIVITY_INTERRUPTS
+            activity_handling=types.ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
         )
     )
 
@@ -429,8 +440,8 @@ async def entrypoint(ctx: agents.JobContext):
             speaking_fps=0.3,
             silent_fps=0.2
         ),
-        user_away_timeout=15,  # seconds before "away" state
-        aec_warmup_duration=1
+        user_away_timeout=28,  # seconds before "away" - gives user more time, reduces premature "क्या आप सुन रहे हैं?"
+        aec_warmup_duration=2   # longer AEC warmup = better echo cancellation when agent speaks, fewer mid-speech stops
     )
     logger.info("Agent session created for room: %s", ctx.room.name if ctx.room else "no-room")
 
@@ -456,6 +467,7 @@ async def entrypoint(ctx: agents.JobContext):
 
     def _on_user_state_changed(ev: UserStateChangedEvent) -> None:
         nonlocal inactivity_task
+        logger.info("[USER_STATE] %s -> %s", ev.old_state, ev.new_state)
         if ev.new_state == "away":
             inactivity_task = asyncio.create_task(user_presence_task())
             return
@@ -463,7 +475,73 @@ async def entrypoint(ctx: agents.JobContext):
             inactivity_task.cancel()
             inactivity_task = None
 
+    def _on_user_input_transcribed(ev: UserInputTranscribedEvent) -> None:
+        final = " (final)" if ev.is_final else ""
+        logger.info("[TRANSCRIPT] user%s: %s", final, ev.transcript or "")
+
+    def _on_agent_state_changed(ev: AgentStateChangedEvent) -> None:
+        logger.info("[AGENT_STATE] %s -> %s", ev.old_state, ev.new_state)
+
+    def _on_conversation_item_added(ev: ConversationItemAddedEvent) -> None:
+        item = ev.item
+        role = getattr(item, "role", None) or getattr(item, "type", "?")
+        content = getattr(item, "content", None) or getattr(item, "text", "") or str(item)
+        if isinstance(content, str) and len(content) > 200:
+            content = content[:200] + "..."
+        logger.info("[CONV] %s: %s", role, content)
+
+    def _on_function_tools_executed(ev: FunctionToolsExecutedEvent) -> None:
+        for fc, out in ev.zipped():
+            logger.info("[TOOL] %s(%s) -> %s", fc.name, fc.arguments or "", out.output if out else None)
+
+    def _on_speech_created(ev: SpeechCreatedEvent) -> None:
+        logger.info("[SPEECH] created source=%s user_initiated=%s", ev.source, ev.user_initiated)
+
+    def _on_error(ev: ErrorEvent) -> None:
+        logger.error("[ERROR] %s from %s", ev.error, type(ev.source).__name__)
+
+    def _on_close(ev: CloseEvent) -> None:
+        logger.info("[CLOSE] reason=%s error=%s", ev.reason, ev.error)
+
     session.on("user_state_changed", _on_user_state_changed)
+    session.on("user_input_transcribed", _on_user_input_transcribed)
+    session.on("agent_state_changed", _on_agent_state_changed)
+    session.on("conversation_item_added", _on_conversation_item_added)
+    session.on("function_tools_executed", _on_function_tools_executed)
+    session.on("speech_created", _on_speech_created)
+    session.on("error", _on_error)
+    session.on("close", _on_close)
+
+    first_greeting_sent = False
+
+    def _on_track_subscribed(track, publication, participant):
+        nonlocal first_greeting_sent
+        if first_greeting_sent:
+            return
+        if not isinstance(track, RemoteAudioTrack):
+            return
+        first_greeting_sent = True
+        ctx.room.off("track_subscribed", _on_track_subscribed)
+
+        async def _send_first_greeting():
+            await asyncio.sleep(1)
+            try:
+                await session.generate_reply(
+                    instructions="""
+Start the conversation strictly from STEP 1 of the system prompt.
+IMPORTANT GUARDRAIL: Only answer questions using the information available in the system prompt.
+If the customer asks anything outside the provided information, politely say that you do not have the information right now and that the Hunar team will follow up with the correct details.
+Never guess or fabricate information.
+"""
+                )
+                logger.info("First greeting sent (on track_subscribed)")
+            except Exception as e:
+                logger.warning("First greeting failed: %s", e)
+
+        asyncio.create_task(_send_first_greeting())
+
+    if ctx.room:
+        ctx.room.on("track_subscribed", _on_track_subscribed)
 
     await session.start(
         room=ctx.room,
