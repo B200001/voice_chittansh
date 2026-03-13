@@ -33,6 +33,7 @@ from livekit.agents.voice.events import (
     UserStateChangedEvent,
 )
 from livekit.plugins import google, silero, noise_cancellation
+from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 from prompt import (
     AGENT_INSTRUCTIONS,
@@ -441,7 +442,8 @@ async def entrypoint(ctx: agents.JobContext):
             silent_fps=0.2
         ),
         user_away_timeout=28,  # seconds before "away" - gives user more time, reduces premature "क्या आप सुन रहे हैं?"
-        aec_warmup_duration=2   # longer AEC warmup = better echo cancellation when agent speaks, fewer mid-speech stops
+        aec_warmup_duration=2,   # longer AEC warmup = better echo cancellation when agent speaks, fewer mid-speech stops
+        turn_detection=MultilingualModel()
     )
     logger.info("Agent session created for room: %s", ctx.room.name if ctx.room else "no-room")
 
