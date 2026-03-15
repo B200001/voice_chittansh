@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 from dataclasses import dataclass, field
 from typing import Any
@@ -43,6 +44,7 @@ from prompt import (
     INSTALLMENT_2,
     INSTALLMENT_3,
 )
+from audio_filter import FilteredAudioInput
 
 load_dotenv()
 
@@ -50,9 +52,25 @@ load_dotenv()
 # Logging
 # -------------------------
 
+# Create logs directory if it doesn't exist
+log_dir = "logs"
+os.makedirs(log_dir, exist_ok=True)
+
+# Configure logging with both file and console output
 logging.basicConfig(
     level=logging.DEBUG,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        # File handler with rotation (10MB per file, keep 5 backups)
+        RotatingFileHandler(
+            os.path.join(log_dir, "application.log"),
+            maxBytes=10*1024*1024,  # 10MB
+            backupCount=5,
+            encoding='utf-8'
+        ),
+        # Console handler
+        logging.StreamHandler()
+    ]
 )
 logger = logging.getLogger("hunar-agent")
 # Log everything from livekit.agents (transcripts, tool calls, etc.)
@@ -195,7 +213,18 @@ class HunarSalesAgent(Agent):
         lead_name: str = "",
         phone_number: str = "",
     ):
-
+        """
+        Marks the beginning of a sales call and records lead information.
+        
+        Call this function when you start engaging with the customer after the initial greeting.
+        This helps track that the sales conversation has officially begun.
+        
+        Args:
+            lead_name: The customer's name (optional)
+            phone_number: The customer's phone number (optional)
+        """
+        logger.info(f"[FUNCTION_CALL] start_sales_call(lead_name='{lead_name}', phone_number='{phone_number}')")
+        
         session = context.userdata
 
         if lead_name:
@@ -215,7 +244,17 @@ class HunarSalesAgent(Agent):
         context: RunContext[SalesCallSession],
         interest_level: str
     ):
-
+        """
+        Tracks the customer's level of interest in the courses or products.
+        
+        Use this to record how interested the customer seems based on their responses.
+        This helps qualify the lead and adjust your approach accordingly.
+        
+        Args:
+            interest_level: The level of interest - "high", "medium", "low", or "not_interested"
+        """
+        logger.info(f"[FUNCTION_CALL] track_interest(interest_level='{interest_level}')")
+        
         session = context.userdata
         session.interest_level = interest_level
 
@@ -229,7 +268,19 @@ class HunarSalesAgent(Agent):
         objection_type: str,
         objection_details: str = ""
     ):
-
+        """
+        Records customer objections during the sales call.
+        
+        Use this when the customer raises concerns or objections about the course, price,
+        time commitment, or any other aspect. This helps track common objections and
+        how to address them.
+        
+        Args:
+            objection_type: Type of objection - "price", "time", "quality", "trust", "family", etc.
+            objection_details: Additional details about the specific objection (optional)
+        """
+        logger.info(f"[FUNCTION_CALL] log_objection(objection_type='{objection_type}', objection_details='{objection_details}')")
+        
         session = context.userdata
 
         session.objections_raised.append({
@@ -247,7 +298,23 @@ class HunarSalesAgent(Agent):
         product_name: str,
         category: str = "general"
     ):
-
+        """
+        Records when a specific product or course is discussed with the customer.
+        
+        Use this tool when you mention or explain any specific course, product, or service
+        to the customer during the conversation. This helps track which products were 
+        presented during the sales call.
+        
+        Args:
+            product_name: The name of the product/course being discussed (e.g., "Fashion Design", "Beauty Course")
+            category: The category of the product - "fashion", "food", "beauty", or "general"
+        
+        Example usage:
+            - When explaining a Fashion Design course, call: discuss_product("Fashion Design", "fashion")
+            - When talking about Makeup Artist course, call: discuss_product("Makeup Artist", "beauty")
+        """
+        logger.info(f"[FUNCTION_CALL] discuss_product(product_name='{product_name}', category='{category}')")
+        
         session = context.userdata
 
         session.products_discussed.append(product_name)
@@ -262,7 +329,18 @@ class HunarSalesAgent(Agent):
         follow_up_date: str,
         follow_up_notes: str = ""
     ):
-
+        """
+        Schedules a follow-up call with the customer.
+        
+        Use this when the customer requests a callback or wants to think about the offer
+        and get back to you later. Record the preferred date/time and any relevant notes.
+        
+        Args:
+            follow_up_date: The date/time for the follow-up (e.g., "tomorrow morning", "next week")
+            follow_up_notes: Any additional notes about what to discuss in the follow-up (optional)
+        """
+        logger.info(f"[FUNCTION_CALL] schedule_follow_up(follow_up_date='{follow_up_date}', follow_up_notes='{follow_up_notes}')")
+        
         session = context.userdata
 
         session.call_status = "callback_scheduled"
@@ -276,7 +354,17 @@ class HunarSalesAgent(Agent):
         context: RunContext[SalesCallSession],
         status: str
     ):
-
+        """
+        Updates the overall status of the sales call.
+        
+        Use this to mark important milestones in the call progression.
+        
+        Args:
+            status: The call status - "contacted", "interested", "not_interested", 
+                   "callback_scheduled", "enrolled", "closed_won", "closed_lost"
+        """
+        logger.info(f"[FUNCTION_CALL] update_call_status(status='{status}')")
+        
         session = context.userdata
 
         session.call_status = status
@@ -290,12 +378,16 @@ class HunarSalesAgent(Agent):
         phone_number: str,
     ) -> str:
         """Validate and store the customer's WhatsApp number. India format: exactly 10 digits, must start with 6, 7, 8, or 9. Call this when the user provides their WhatsApp number. Extract only digits from their speech (e.g. 9876543210). Returns 'valid' if accepted, or an error message in Hindi/English to speak if invalid."""
+        logger.info(f"[FUNCTION_CALL] update_whatsapp_number(phone_number='{phone_number}')")
+        
         session = context.userdata
         digits = "".join(c for c in str(phone_number).strip() if c.isdigit())
         if len(digits) != 10:
+            logger.warning(f"WhatsApp validation failed: expected 10 digits, got {len(digits)}")
             return f"INVALID: WhatsApp number exactly 10 digits होना चाहिए। आपने {len(digits)} digits दिए। कृपया सही 10-digit number बताइए।"
         first = digits[0]
         if first not in "6789":
+            logger.warning(f"WhatsApp validation failed: number starts with {first}, must start with 6/7/8/9")
             return "INVALID: India में WhatsApp number 6, 7, 8 या 9 से start होना चाहिए। कृपया सही number बताइए।"
         session.phone_number = digits
         logger.info(f"WhatsApp number validated and stored: {digits}")
@@ -304,6 +396,7 @@ class HunarSalesAgent(Agent):
     @function_tool()
     async def cut_call(self, context: RunContext[SalesCallSession]):
         """End the call when the user says goodbye, bye, call खत्म करो, मुझे जाना है, disconnect, etc. Call this to hang up. Say a brief goodbye first, then disconnect after it plays."""
+        logger.info("[FUNCTION_CALL] cut_call()")
         logger.info("cut_call: user requested to end call — will disconnect after goodbye plays")
         job_ctx = None
         try:
@@ -412,10 +505,10 @@ async def entrypoint(ctx: agents.JobContext):
     # 1. Catching short utterances ("हाँ", "फ़ैशन") so user doesn't repeat
     # 2. Not stopping agent mid-sentence from false triggers (echo, breath, cough)
     vad = silero.VAD.load(
-        min_speech_duration=0.15,  # lower = catches "हाँ", "yes", "फ़ैशन" etc. (was 0.35 - too high, missed short replies)
+        min_speech_duration=0.2,  # lower = catches "हाँ", "yes", "फ़ैशन" etc. (was 0.35 - too high, missed short replies)
         min_silence_duration=0.9,  # longer = less cutting user off mid-sentence, more time to finish thought
-        activation_threshold=0.68,  # higher = fewer false "user speaking" when agent speaks (reduces mid-speech stops)
-        prefix_padding_duration=0.35,  # capture more context at start of user speech
+        activation_threshold=0.65,  # higher = fewer false "user speaking" when agent speaks (reduces mid-speech stops)
+        prefix_padding_duration=0.3,  # capture more context at start of user speech
     )
 
     
@@ -425,12 +518,6 @@ async def entrypoint(ctx: agents.JobContext):
         language="hi-IN",
         voice="Aoede",
         vertexai=True,
-        realtime_input_config=types.RealtimeInputConfig(
-            automatic_activity_detection=types.AutomaticActivityDetection(
-                disabled=False,
-            ),
-            activity_handling=types.ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
-        )
     )
 
     session = AgentSession[SalesCallSession](
@@ -439,7 +526,7 @@ async def entrypoint(ctx: agents.JobContext):
         vad=vad,
         video_sampler=VoiceActivityVideoSampler(
             speaking_fps=0.3,
-            silent_fps=0.2
+            silent_fps=0.3
         ),
         user_away_timeout=28,  # seconds before "away" - gives user more time, reduces premature "क्या आप सुन रहे हैं?"
         aec_warmup_duration=2,   # longer AEC warmup = better echo cancellation when agent speaks, fewer mid-speech stops
@@ -462,7 +549,7 @@ async def entrypoint(ctx: agents.JobContext):
                     "Keep it brief (1 short sentence)."
                 )
             )
-            await asyncio.sleep(10)
+            await asyncio.sleep(15)
         # Still no response after 2 prompts → graceful goodbye and hangup
         logger.info("User still inactive after 2 prompts — ending call gracefully")
         await _graceful_hangup(session, ctx)
@@ -549,9 +636,17 @@ Never guess or fabricate information.
         room=ctx.room,
         agent=agent,
         room_input_options=RoomInputOptions(
-            noise_cancellation=noise_cancellation.BVCTelephony()
+            # Removed noise_cancellation - using custom RNNoise filter instead
         ),
     )
+
+    # Apply custom RNNoise + Audio Gate filter (config-based)
+    try:
+        original_audio_input = session.input.audio
+        session.input.audio = FilteredAudioInput(source=original_audio_input)
+        logger.info("RNNoise + Audio Gate filter applied successfully (config-based)")
+    except Exception as e:
+        logger.error(f"Failed to apply audio filter: {e}", exc_info=True)
 
 
 # -------------------------
