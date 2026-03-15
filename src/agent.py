@@ -173,7 +173,7 @@ class HunarSalesAgent(Agent):
         instructions = build_prompt(session_data) + guardrail_response()
 
         end_call_tool = EndCallTool(
-            extra_description="Use when user says: call khatam kardo, bye, mujhe jana hai, I have to go, disconnect karo",
+            extra_description="Use when user says: call खत्म करो, bye, मुझे जाना है, I have to go, disconnect करो",
             end_instructions="Say a brief warm goodbye in Hindi/Hinglish (1 sentence), then end the call.",
             delete_room=True,
         )
@@ -293,17 +293,17 @@ class HunarSalesAgent(Agent):
         session = context.userdata
         digits = "".join(c for c in str(phone_number).strip() if c.isdigit())
         if len(digits) != 10:
-            return f"INVALID: WhatsApp number exactly 10 digits hona chahiye. Aapne {len(digits)} digits diye. Kripya sahi 10-digit number bataiye."
+            return f"INVALID: WhatsApp number exactly 10 digits होना चाहिए। आपने {len(digits)} digits दिए। कृपया सही 10-digit number बताइए।"
         first = digits[0]
         if first not in "6789":
-            return "INVALID: India mein WhatsApp number 6, 7, 8 ya 9 se start hona chahiye. Kripya sahi number bataiye."
+            return "INVALID: India में WhatsApp number 6, 7, 8 या 9 से start होना चाहिए। कृपया सही number बताइए।"
         session.phone_number = digits
         logger.info(f"WhatsApp number validated and stored: {digits}")
         return "valid"
 
     @function_tool()
     async def cut_call(self, context: RunContext[SalesCallSession]):
-        """End the call when the user says goodbye, bye, call khatam kardo, mujhe jana hai, disconnect, etc. Call this to hang up. Say a brief goodbye first, then disconnect after it plays."""
+        """End the call when the user says goodbye, bye, call खत्म करो, मुझे जाना है, disconnect, etc. Call this to hang up. Say a brief goodbye first, then disconnect after it plays."""
         logger.info("cut_call: user requested to end call — will disconnect after goodbye plays")
         job_ctx = None
         try:
