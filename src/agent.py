@@ -236,6 +236,7 @@ class HunarSalesAgent(Agent):
         session.call_status = "contacted"
 
         logger.info(f"Call started with {session.lead_name}")
+        return "Call started. Continue to STEP 3, if not already"
 
 
     @function_tool()
@@ -259,6 +260,7 @@ class HunarSalesAgent(Agent):
         session.interest_level = interest_level
 
         logger.info(f"Interest updated → {interest_level}")
+        return "Interest updated. Continue to STEP 5, if not already" 
 
 
     @function_tool()
@@ -299,19 +301,28 @@ class HunarSalesAgent(Agent):
         category: str = "general"
     ):
         """
-        Records when a specific product or course is discussed with the customer.
+        Records the specific sub-category the customer chose in STEP 5.
         
-        Use this tool when you mention or explain any specific course, product, or service
-        to the customer during the conversation. This helps track which products were 
-        presented during the sales call.
+        CRITICAL TIMING: Only call this ONCE in STEP 5 after asking the sub-category question.
+        
+        WHEN TO CALL:
+        - In STEP 5, AFTER you ask: "Fashion में आपका interest किसमें है? Garment making, embroidery..."
+        - User responds with ONE sub-category: "embroidery" or "garment making" or "baking" etc.
+        - You acknowledge: "ठीक है, [sub-category]।"
+        - THEN call this tool with that sub-category name
+        
+        WHEN NOT TO CALL:
+        - STEP 3: User says "Fashion" or "Food" or "Beauty" → DO NOT CALL
+        - STEP 4: User says "hobby" or "job" or "earning" → DO NOT CALL
+        - STEP 6-15: Any other step → DO NOT CALL
+        - Do NOT call multiple times or predict what user might want
         
         Args:
-            product_name: The name of the product/course being discussed (e.g., "Fashion Design", "Beauty Course")
-            category: The category of the product - "fashion", "food", "beauty", or "general"
+            product_name: The exact sub-category user mentioned (e.g., "embroidery", "garment making", "baking", "bridal makeup")
+            category: The main category - "fashion", "food", or "beauty"
         
-        Example usage:
-            - When explaining a Fashion Design course, call: discuss_product("Fashion Design", "fashion")
-            - When talking about Makeup Artist course, call: discuss_product("Makeup Artist", "beauty")
+        Example:
+            User says "embroidery" in STEP 5 → discuss_product("embroidery", "fashion")
         """
         logger.info(f"[FUNCTION_CALL] discuss_product(product_name='{product_name}', category='{category}')")
         
@@ -320,6 +331,7 @@ class HunarSalesAgent(Agent):
         session.products_discussed.append(product_name)
 
         logger.info(f"Product discussed → {product_name}")
+        return ""
 
 
     @function_tool()
@@ -513,24 +525,22 @@ async def entrypoint(ctx: agents.JobContext):
 
     
     # This reduces random voice breaking from false VAD triggers
+    # Using Gemini 3.1 Flash Live - note: proactive audio and affective dialogue not supported
     llm = google.realtime.RealtimeModel(
-        model="gemini-live-2.5-flash",
+        model="gemini-3.1-flash-live-preview",
         language="hi-IN",
         voice="Aoede",
-        vertexai=True,
     )
 
     session = AgentSession[SalesCallSession](
         userdata=session_data,
         llm=llm,
-        vad=vad,
-        video_sampler=VoiceActivityVideoSampler(
-            speaking_fps=0.3,
-            silent_fps=0.3
-        ),
-        user_away_timeout=28,  # seconds before "away" - gives user more time, reduces premature "क्या आप सुन रहे हैं?"
+        # video_sampler=VoiceActivityVideoSampler(
+        #     speaking_fps=0.3,
+        #     silent_fps=0.3
+        # ),
+        user_away_timeout=30,  # seconds before "away" - gives user more time, reduces premature "क्या आप सुन रहे हैं?"
         aec_warmup_duration=2,   # longer AEC warmup = better echo cancellation when agent speaks, fewer mid-speech stops
-        turn_detection=MultilingualModel()
     )
     logger.info("Agent session created for room: %s", ctx.room.name if ctx.room else "no-room")
 
