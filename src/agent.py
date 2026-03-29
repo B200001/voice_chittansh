@@ -527,7 +527,7 @@ async def entrypoint(ctx: agents.JobContext):
     # This reduces random voice breaking from false VAD triggers
     # Using Gemini 3.1 Flash Live - note: proactive audio and affective dialogue not supported
     llm = google.realtime.RealtimeModel(
-        model="gemini-2.5-flash-live",
+        model="gemini-3.1-flash-live-preview",
         language="hi-IN",
         voice="Aoede",
     )
