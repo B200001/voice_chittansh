@@ -25,7 +25,7 @@ AUDIO_GATE_THRESHOLD_DB = -25.0
 # - Higher values (e.g., 0.9) make gate stricter
 # - Default: 0.7 (moderate)
 # - This multiplies with AUDIO_GATE_THRESHOLD_DB for effective threshold
-VAD_AGGRESSIVENESS = 0.7
+VAD_AGGRESSIVENESS = 0.6
 
 # ============================================================
 # EMA (Exponential Moving Average) Configuration
@@ -46,7 +46,7 @@ EMA_ALPHA = 0.1
 # - Set to 100 for normal operation
 # - Set to 10 for debugging
 # - Set to 1000 for production (less verbose)
-AUDIO_LOG_EVERY_N_FRAMES = 1000
+AUDIO_LOG_EVERY_N_FRAMES = 10000
 
 # ============================================================
 # Debug Configuration
