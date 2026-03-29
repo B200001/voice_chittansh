@@ -163,9 +163,13 @@ RULES:
 Only answer using the information provided in this prompt.
 Do NOT invent course details, prices, policies, or features.
 
-2. For general knowledge questions:
-You may answer normally using your general knowledge.
-Example: history, geography, public figures, etc.
+2. For unrelated or general knowledge questions:
+Do NOT answer the question content.
+Politely decline in one line and redirect to Hunar course counseling.
+
+SPEAK (Hindi / Hinglish): "माफ़ कीजिए, मैं अभी सिर्फ Hunar course की जानकारी में मदद कर सकती हूँ। क्या आप Fashion, Food या Beauty में interest बताना चाहेंगी?"
+
+SPEAK (English): "Sorry, I can only help with Hunar course information on this call. Would you like to explore Fashion, Food, or Beauty courses?"
 
 3. If the question is about Hunar but the answer is NOT in the prompt:
 Do NOT guess. Respond politely using the SPEAK lines below.
@@ -174,7 +178,8 @@ SPEAK (Hindi / Hinglish): "यह जानकारी अभी मेरे �
 
 SPEAK (English): "I don't have that information right now. I will note your query and our team will get back to you with the correct details."
 
-4. After answering unrelated questions, gently bring the conversation back to Hunar courses.
+4. If user asks out-of-scope questions repeatedly (2 times):
+Move toward closure or WhatsApp follow-up.
 
 SPEAK (Hindi / Hinglish) for redirection: "वैसे अगर आप चाहें तो मैं आपको हुनर के courses के बारे में बता सकती हूँ।"
 """
@@ -468,21 +473,29 @@ Keep it short (1-2 sentences). Do NOT ask questions. Just say goodbye and end.
         logger.debug("graceful hangup generate_reply: %s", e)
     try:
         session.shutdown()
-        job_ctx = get_job_context()
-        async def _delete() -> None:
-            try:
-                if hasattr(job_ctx, "delete_room"):
-                    await job_ctx.delete_room()
-                else:
-                    await job_ctx.api.room.delete_room(
-                        api.DeleteRoomRequest(room=job_ctx.room.name)
-                    )
-            except Exception:
-                pass
-        job_ctx.add_shutdown_callback(_delete)
-        job_ctx.shutdown(reason="user no response")
-    except Exception:
-        asyncio.get_running_loop().call_later(0.5, lambda: os._exit(0))
+    except Exception as e:
+        logger.warning("graceful hangup: session.shutdown error: %s", e)
+
+    async def _delete() -> None:
+        try:
+            if hasattr(ctx, "delete_room"):
+                await ctx.delete_room()
+            else:
+                await ctx.api.room.delete_room(
+                    api.DeleteRoomRequest(room=ctx.room.name)
+                )
+        except Exception as e:
+            logger.debug("graceful hangup: room delete skipped: %s", e)
+
+    try:
+        ctx.add_shutdown_callback(_delete)
+    except Exception as e:
+        logger.debug("graceful hangup: add_shutdown_callback error: %s", e)
+
+    try:
+        ctx.shutdown(reason="user no response")
+    except Exception as e:
+        logger.warning("graceful hangup: ctx.shutdown error: %s", e)
 
 
 # -------------------------
@@ -535,12 +548,14 @@ async def entrypoint(ctx: agents.JobContext):
     session = AgentSession[SalesCallSession](
         userdata=session_data,
         llm=llm,
+        turn_detection=MultilingualModel(),
         # video_sampler=VoiceActivityVideoSampler(
         #     speaking_fps=0.3,
         #     silent_fps=0.3
         # ),
         user_away_timeout=30,  # seconds before "away" - gives user more time, reduces premature "क्या आप सुन रहे हैं?"
         aec_warmup_duration=2,   # longer AEC warmup = better echo cancellation when agent speaks, fewer mid-speech stops
+        allow_interruptions=True,
     )
     logger.info("Agent session created for room: %s", ctx.room.name if ctx.room else "no-room")
 
