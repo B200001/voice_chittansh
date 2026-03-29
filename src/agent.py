@@ -514,10 +514,9 @@ async def entrypoint(ctx: agents.JobContext):
     
     # This reduces random voice breaking from false VAD triggers
     llm = google.realtime.RealtimeModel(
-        model="gemini-live-2.5-flash",
+        model="gemini-3.1-flash-live-preview",
         language="hi-IN",
         voice="Aoede",
-        vertexai=True,
     )
 
     session = AgentSession[SalesCallSession](
@@ -528,7 +527,7 @@ async def entrypoint(ctx: agents.JobContext):
             speaking_fps=0.3,
             silent_fps=0.3
         ),
-        user_away_timeout=28,  # seconds before "away" - gives user more time, reduces premature "क्या आप सुन रहे हैं?"
+        user_away_timeout=25,  # seconds before "away" - gives user more time, reduces premature "क्या आप सुन रहे हैं?"
         aec_warmup_duration=2,   # longer AEC warmup = better echo cancellation when agent speaks, fewer mid-speech stops
         turn_detection=MultilingualModel()
     )
