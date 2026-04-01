@@ -1,5 +1,8 @@
+[variables]
+HF_HOME = "/app/.hf_cache"
+
 [phases.build]
-cmds = ['python src/agent.py download-files']
+cmds = ['HF_HOME=/app/.hf_cache python src/agent.py download-files']
 
 [start]
 cmd = 'python src/agent.py start'
