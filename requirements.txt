@@ -4,7 +4,6 @@ livekit-plugins-silero==1.5.1
 livekit-plugins-noise-cancellation==0.2.5
 google-genai==1.69.0
 python-dotenv==1.2.2
-livekit-agents[turn-detector]==1.5.1
 fastapi==0.115.0
 uvicorn==0.30.6
 pyrnnoise

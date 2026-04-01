@@ -1,1 +1,1 @@
-worker: python src/agent.py download-files && python src/agent.py start
+worker: python src/agent.py start

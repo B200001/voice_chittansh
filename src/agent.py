@@ -34,7 +34,6 @@ from livekit.agents.voice.events import (
     UserStateChangedEvent,
 )
 from livekit.plugins import google, silero, noise_cancellation
-from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 from prompt import (
     AGENT_INSTRUCTIONS,
@@ -557,7 +556,6 @@ async def entrypoint(ctx: agents.JobContext):
     session = AgentSession[SalesCallSession](
         userdata=session_data,
         llm=llm,
-        turn_detection=MultilingualModel(),
         # video_sampler=VoiceActivityVideoSampler(
         #     speaking_fps=0.3,
         #     silent_fps=0.3
