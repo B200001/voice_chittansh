@@ -1,0 +1,10 @@
+hnrt/
+venv/
+.venv/
+.env
+*.pyc
+__pycache__/
+.git/
+logs/
+*.log
+.DS_Store

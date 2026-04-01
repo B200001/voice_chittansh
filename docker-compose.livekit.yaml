@@ -1,0 +1,16 @@
+# Local LiveKit server (dev mode)
+# Run: docker compose -f docker-compose.livekit.yaml up -d
+# Stop: docker compose -f docker-compose.livekit.yaml down
+#
+# Default credentials: API key=devkey, API secret=secret
+# URL: ws://127.0.0.1:7880 (or wss://127.0.0.1:7880 if TLS configured)
+
+services:
+  livekit:
+    image: livekit/livekit-server:master
+    container_name: livekit-server
+    command: ["--dev", "--bind", "0.0.0.0"]
+    ports:
+      - "7880:7880"   # HTTP/WebSocket signal
+      - "7881:7881"   # RTC TCP (optional, for TURN)
+    restart: unless-stopped
