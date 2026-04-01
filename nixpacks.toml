@@ -1,0 +1,5 @@
+[phases.build]
+cmds = ['python src/agent.py download-files']
+
+[start]
+cmd = 'python src/agent.py start'
