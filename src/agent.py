@@ -412,7 +412,11 @@ class HunarSalesAgent(Agent):
 
     @function_tool()
     async def cut_call(self, context: RunContext[SalesCallSession]):
-        """End the call when the user says goodbye, bye, call खत्म करो, मुझे जाना है, disconnect, etc. Call this to hang up. Say a brief goodbye first, then disconnect after it plays."""
+        """End the call AFTER you have fully spoken your goodbye.
+        IMPORTANT: Do NOT call this in the same turn as your goodbye message.
+        First speak your complete goodbye sentence, wait for user to hear it, 
+        then call cut_call in a SEPARATE follow-up turn.
+        If you must call it in the same turn, the system will wait for your speech to finish."""
         logger.info("[FUNCTION_CALL] cut_call()")
         logger.info("cut_call: user requested to end call — will disconnect after goodbye plays")
         job_ctx = None
@@ -428,13 +432,18 @@ class HunarSalesAgent(Agent):
         except Exception as e:
             logger.warning("cut_call: get_job_context error: %s", e)
 
-        # Wait for current speech (goodbye) to play out before cutting — smooth ending
+        # Give the goodbye speech time to be fully generated and start playing.
+        # Gemini realtime fires tool calls concurrently with speech generation,
+        # so wait_for_playout alone is not enough — the speech may not be
+        # fully generated yet when this tool starts executing.
+        await asyncio.sleep(6)
+
         try:
             await context.wait_for_playout()
-            await asyncio.sleep(2)  # Extra 2s so user hears full goodbye
+            await asyncio.sleep(2)
         except Exception as e:
             logger.debug("cut_call: wait_for_playout: %s", e)
-            await asyncio.sleep(4)  # Fallback: allow ~4s for goodbye to play
+            await asyncio.sleep(4)
 
         try:
             agent_session = context.session
