@@ -15,17 +15,16 @@ RNNOISE_ENABLED = True
 # ============================================================
 
 # Audio gate threshold in dB
-# - Lower values (e.g., -30) are more permissive (allows quieter audio)
+# - Lower values (e.g., -45) are more permissive (allows quieter audio)
 # - Higher values (e.g., -20) are stricter (rejects more quiet audio)
-# - Default: -25.0 (balanced for telephony)
-AUDIO_GATE_THRESHOLD_DB = -25.0
+# - Use -25.0 for telephony/SIP, -45.0 for browser WebRTC
+AUDIO_GATE_THRESHOLD_DB = -45.0
 
 # VAD aggressiveness multiplier (0.0 - 1.0)
-# - Lower values (e.g., 0.5) make gate more permissive
+# - Lower values (e.g., 0.3) make gate more permissive
 # - Higher values (e.g., 0.9) make gate stricter
-# - Default: 0.7 (moderate)
-# - This multiplies with AUDIO_GATE_THRESHOLD_DB for effective threshold
-VAD_AGGRESSIVENESS = 0.6
+# - Use 0.6 for telephony/SIP, 0.3 for browser WebRTC
+VAD_AGGRESSIVENESS = 0.3
 
 # ============================================================
 # EMA (Exponential Moving Average) Configuration
